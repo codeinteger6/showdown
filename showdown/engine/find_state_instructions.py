@@ -3,10 +3,9 @@ from copy import copy
 import config
 import constants
 from data import all_move_json
-from showdown.damage_calculator import calculate_damage
-from showdown.helpers import boost_multiplier_lookup
 
 from . import instruction_generator
+from .damage_calculator import calculate_damage
 from .objects import TransposeInstruction
 from .special_effects.abilities.modify_attack_against import ability_modify_attack_against
 from .special_effects.abilities.modify_attack_being_used import ability_modify_attack_being_used
@@ -29,7 +28,7 @@ def lookup_move(move_name):
 
 
 def get_effective_speed(state, side):
-    boosted_speed = side.active.speed * boost_multiplier_lookup[side.active.speed_boost]
+    boosted_speed = side.active.calculate_boosted_stats()[constants.SPEED]
 
     if state.weather == constants.SUN and side.active.ability == 'chlorophyll':
         boosted_speed *= 2

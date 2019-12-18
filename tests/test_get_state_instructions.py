@@ -28,8 +28,7 @@ class TestGetStateInstructions(unittest.TestCase):
                                 "dragonite": Pokemon.from_state_pokemon_dict(StatePokemon("dragonite", 81).to_dict()),
                                 "hitmonlee": Pokemon.from_state_pokemon_dict(StatePokemon("hitmonlee", 81).to_dict()),
                             },
-                            defaultdict(lambda: 0),
-                            False
+                            defaultdict(lambda: 0)
                         ),
                         Side(
                             Pokemon.from_state_pokemon_dict(StatePokemon("aromatisse", 81).to_dict()),
@@ -40,14 +39,11 @@ class TestGetStateInstructions(unittest.TestCase):
                                 "toxapex": Pokemon.from_state_pokemon_dict(StatePokemon("toxapex", 73).to_dict()),
                                 "bronzong": Pokemon.from_state_pokemon_dict(StatePokemon("bronzong", 73).to_dict()),
                             },
-                            defaultdict(lambda: 0),
-                            False
+                            defaultdict(lambda: 0)
                         ),
                         None,
-                        None,
-                        False,
-                        False,
-                        False
+            None,
+            False
                     )
 
         self.mutator = StateMutator(self.state)
@@ -556,6 +552,44 @@ class TestGetStateInstructions(unittest.TestCase):
                 1,
                 [
                     (constants.MUTATOR_DAMAGE, constants.OPPONENT, 1)
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_infiltrator_move_goes_through_sub(self):
+        bot_move = "tackle"
+        opponent_move = "splash"
+        self.state.self.active.ability = 'infiltrator'
+        self.state.opponent.active.hp = 1
+        self.state.opponent.active.volatile_status.add(constants.SUBSTITUTE)
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 1)
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_substitute_breaks_when_pkmn_behind_it_has_1_health(self):
+        bot_move = "surf"
+        opponent_move = "splash"
+        self.state.opponent.active.types = ['ground', 'rock']
+        self.state.opponent.active.hp = 1
+        self.state.opponent.active.volatile_status.add(constants.SUBSTITUTE)
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                    (constants.MUTATOR_REMOVE_VOLATILE_STATUS, constants.OPPONENT, constants.SUBSTITUTE)
                 ],
                 False
             )
@@ -4715,6 +4749,121 @@ class TestGetStateInstructions(unittest.TestCase):
             TransposeInstruction(
                 1,
                 [
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_thunderwave_into_ground_type(self):
+        bot_move = "thunderwave"
+        opponent_move = "splash"
+        self.state.opponent.active.types = ['ground']
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_bodyslam_into_ground_type(self):
+        bot_move = "bodyslam"
+        opponent_move = "splash"
+        self.state.opponent.active.types = ['ground']
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                0.3,
+                [
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 53),
+                    (constants.MUTATOR_APPLY_STATUS, constants.OPPONENT, constants.PARALYZED)
+                ],
+                False
+            ),
+            TransposeInstruction(
+                0.7,
+                [
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 53),
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_protean_changes_types_before_doing_damage(self):
+        bot_move = "surf"
+        opponent_move = "splash"
+        self.state.self.active.types = ['water', 'grass']
+        self.state.self.active.ability = 'protean'
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                    (constants.MUTATOR_CHANGE_TYPE, constants.SELF, ['water'], ['water', 'grass']),
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 72),
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_no_type_change_instruction_if_there_are_no_types_to_change(self):
+        bot_move = "surf"
+        opponent_move = "splash"
+        self.state.self.active.types = ['water']
+        self.state.self.active.ability = 'protean'
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 72),
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_using_ground_move_with_libero_makes_pokemon_immune_to_electric_move(self):
+        bot_move = "earthquake"
+        opponent_move = "thunderwave"
+        self.state.self.active.types = ['water', 'grass']
+        self.state.self.active.ability = 'protean'
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                    (constants.MUTATOR_CHANGE_TYPE, constants.SELF, ['ground'], ['water', 'grass']),
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 62),
+                ],
+                True
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_infestation_starts_volatile_status(self):
+        bot_move = "infestation"
+        opponent_move = "splash"
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 6),
+                    (constants.MUTATOR_APPLY_VOLATILE_STATUS, constants.OPPONENT, constants.PARTIALLY_TRAPPED),
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 37)
                 ],
                 False
             )
@@ -10525,8 +10674,7 @@ class TestUserMovesFirst(unittest.TestCase):
                                 "dragonite": Pokemon.from_state_pokemon_dict(StatePokemon("dragonite", 81).to_dict()),
                                 "hitmonlee": Pokemon.from_state_pokemon_dict(StatePokemon("hitmonlee", 81).to_dict()),
                             },
-                            defaultdict(lambda: 0),
-                            False
+                            defaultdict(lambda: 0)
                         ),
                         Side(
                             Pokemon.from_state_pokemon_dict(StatePokemon("aromatisse", 81).to_dict()),
@@ -10537,13 +10685,10 @@ class TestUserMovesFirst(unittest.TestCase):
                                 "toxapex": Pokemon.from_state_pokemon_dict(StatePokemon("toxapex", 73).to_dict()),
                                 "bronzong": Pokemon.from_state_pokemon_dict(StatePokemon("bronzong", 73).to_dict()),
                             },
-                            defaultdict(lambda: 0),
-                            False
+                            defaultdict(lambda: 0)
                         ),
                         None,
                         None,
-                        False,
-                        False,
                         False
                     )
 

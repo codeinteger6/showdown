@@ -1,22 +1,36 @@
 from collections import defaultdict
 from copy import copy
 
-from data import all_move_json
 import constants
-from showdown.helpers import boost_multiplier_lookup
+from data import all_move_json
+
+
+boost_multiplier_lookup = {
+    -6: 2/8,
+    -5: 2/7,
+    -4: 2/6,
+    -3: 2/5,
+    -2: 2/4,
+    -1: 2/3,
+    0: 2/2,
+    1: 3/2,
+    2: 4/2,
+    3: 5/2,
+    4: 6/2,
+    5: 7/2,
+    6: 8/2
+}
 
 
 class State(object):
-    __slots__ = ('self', 'opponent', 'weather', 'force_switch', 'field', 'trick_room', 'wait')
+    __slots__ = ('self', 'opponent', 'weather', 'field', 'trick_room')
 
-    def __init__(self, user, opponent, weather, field, trick_room, force_switch, wait):
+    def __init__(self, user, opponent, weather, field, trick_room):
         self.self = user
         self.opponent = opponent
         self.weather = weather
         self.field = field
         self.trick_room = trick_room
-        self.force_switch = force_switch
-        self.wait = wait
 
     def get_self_options(self, force_switch):
         if force_switch:
@@ -24,7 +38,7 @@ class State(object):
         else:
             possible_moves = [m[constants.ID] for m in self.self.active.moves if not m[constants.DISABLED]]
 
-        if self.self.trapped:
+        if self.self.trapped(self.opponent.active):
             possible_switches = []
         else:
             possible_switches = self.self.get_switches()
@@ -37,7 +51,10 @@ class State(object):
         else:
             possible_moves = [m[constants.ID] for m in self.opponent.active.moves if not m[constants.DISABLED]]
 
-        possible_switches = self.opponent.get_switches()
+        if self.opponent.trapped(self.self.active):
+            possible_switches = []
+        else:
+            possible_switches = self.opponent.get_switches()
 
         return possible_moves + possible_switches
 
@@ -69,6 +86,19 @@ class State(object):
 
         return user_options, opponent_options
 
+    def battle_is_finished(self):
+        # Returns:
+        #    1 if the bot (self) has won
+        #   -1 if the opponent has won
+        #    False if the battle is not over
+
+        if self.self.active.hp <= 0 and not any(pkmn.hp for pkmn in self.self.reserve.values()):
+            return -1
+        elif self.opponent.active.hp <= 0 and not any(pkmn.hp for pkmn in self.opponent.reserve.values()) and len(self.opponent.reserve) == 5:
+            return 1
+
+        return False
+
     @classmethod
     def from_dict(cls, state_dict):
         return State(
@@ -76,9 +106,7 @@ class State(object):
             Side.from_dict(state_dict[constants.OPPONENT]),
             state_dict[constants.WEATHER],
             state_dict[constants.FIELD],
-            state_dict[constants.TRICK_ROOM],
-            state_dict[constants.FORCE_SWITCH],
-            state_dict[constants.WAIT],
+            state_dict[constants.TRICK_ROOM]
         )
 
     def __repr__(self):
@@ -88,9 +116,7 @@ class State(object):
                 constants.OPPONENT: self.opponent,
                 constants.WEATHER: self.weather,
                 constants.FIELD: self.field,
-                constants.TRICK_ROOM: self.trick_room,
-                constants.FORCE_SWITCH: self.force_switch,
-                constants.WAIT: self.wait
+                constants.TRICK_ROOM: self.trick_room
             }
         )
 
@@ -100,9 +126,7 @@ class State(object):
             hash(self.opponent),
             self.weather,
             self.field,
-            self.trick_room,
-            self.force_switch,
-            self.wait
+            self.trick_room
         )
 
     def __hash__(self):
@@ -113,13 +137,12 @@ class State(object):
 
 
 class Side(object):
-    __slots__ = ('active', 'reserve', 'side_conditions', 'trapped')
+    __slots__ = ('active', 'reserve', 'side_conditions')
 
-    def __init__(self, active, reserve, side_conditions, trapped):
+    def __init__(self, active, reserve, side_conditions):
         self.active = active
         self.reserve = reserve
         self.side_conditions = side_conditions
-        self.trapped = trapped
 
     def get_switches(self):
         switches = []
@@ -128,29 +151,40 @@ class Side(object):
                 switches.append("{} {}".format(constants.SWITCH_STRING, pkmn_name))
         return switches
 
+    def trapped(self, opponent_active):
+        if self.active.item == 'shedshell' or 'ghost' in self.active.types:
+            return False
+        elif constants.PARTIALLY_TRAPPED in self.active.volatile_status:
+            return True
+        elif opponent_active.ability == 'shadowtag':
+            return True
+        elif opponent_active.ability == 'magnetpull' and 'steel' in self.active.types:
+            return True
+        elif opponent_active.ability == 'arenatrap' and self.active.is_grounded():
+            return True
+        else:
+            return False
+
     @classmethod
     def from_dict(cls, side_dict):
         return Side(
             Pokemon.from_dict(side_dict[constants.ACTIVE]),
             {p[constants.ID]: Pokemon.from_dict(p) for p in side_dict[constants.RESERVE].values()},
-            defaultdict(int, side_dict[constants.SIDE_CONDITIONS]),
-            side_dict[constants.TRAPPED]
+            defaultdict(int, side_dict[constants.SIDE_CONDITIONS])
         )
 
     def __repr__(self):
         return str({
                 constants.ACTIVE: self.active,
                 constants.RESERVE: self.reserve,
-                constants.SIDE_CONDITIONS: dict(self.side_conditions),
-                constants.TRAPPED: self.trapped
+                constants.SIDE_CONDITIONS: dict(self.side_conditions)
             })
 
     def __key(self):
         return (
             hash(self.active),
             sum(hash(p.reserve_hash()) for p in self.reserve.values()),
-            hash(frozenset(self.side_conditions.items())),
-            self.trapped
+            hash(frozenset(self.side_conditions.items()))
         )
 
     def __eq__(self, other):
@@ -457,7 +491,8 @@ class StateMutator:
             constants.MUTATOR_WEATHER_START: self.start_weather,
             constants.MUTATOR_FIELD_START: self.start_field,
             constants.MUTATOR_FIELD_END: self.end_field,
-            constants.MUTATOR_TOGGLE_TRICKROOM: self.toggle_trickroom
+            constants.MUTATOR_TOGGLE_TRICKROOM: self.toggle_trickroom,
+            constants.MUTATOR_CHANGE_TYPE: self.change_types
         }
         self.reverse_instructions = {
             constants.MUTATOR_SWITCH: self.reverse_switch,
@@ -476,7 +511,8 @@ class StateMutator:
             constants.MUTATOR_WEATHER_START: self.reverse_start_weather,
             constants.MUTATOR_FIELD_START: self.reverse_start_field,
             constants.MUTATOR_FIELD_END: self.reverse_end_field,
-            constants.MUTATOR_TOGGLE_TRICKROOM: self.toggle_trickroom
+            constants.MUTATOR_TOGGLE_TRICKROOM: self.toggle_trickroom,
+            constants.MUTATOR_CHANGE_TYPE: self.reverse_change_types
         }
 
     def apply_one(self, instruction):
@@ -615,6 +651,16 @@ class StateMutator:
 
     def toggle_trickroom(self):
         self.state.trick_room ^= True
+
+    def change_types(self, side, new_types, _):
+        # the third parameter is the current types of the active pokemon
+        # they must be here for reversing purposes
+        side = self.get_side(side)
+        side.active.types = new_types
+
+    def reverse_change_types(self, side, _, old_types):
+        side = self.get_side(side)
+        side.active.types = old_types
 
     def __key(self):
         return self.state

@@ -55,6 +55,7 @@ MUTATOR_WEATHER_END = "weather_end"
 MUTATOR_FIELD_START = "field_start"
 MUTATOR_FIELD_END = "field_end"
 MUTATOR_TOGGLE_TRICKROOM = "toggle_trickroom"
+MUTATOR_CHANGE_TYPE = "change_type"
 
 
 DAMAGE = 'damage'
@@ -224,6 +225,11 @@ SPIKES = 'spikes'
 TOXIC_SPIKES = 'toxicspikes'
 COURT_CHANGE = 'courtchange'
 
+TYPE_CHANGE_ABILITIES = {
+    'protean',
+    'libero'
+}
+
 COURT_CHANGE_SWAPS = {
     'spikes',
     'toxicspikes',
@@ -276,6 +282,7 @@ PROTECT = "protect"
 BANEFUL_BUNKER = "banefulbunker"
 SPIKY_SHIELD = "spikyshield"
 DYNAMAX = "dynamax"
+PARTIALLY_TRAPPED = "partiallytrapped"
 
 PROTECT_VOLATILE_STATUSES = [PROTECT, BANEFUL_BUNKER, SPIKY_SHIELD]
 

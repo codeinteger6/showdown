@@ -1,11 +1,9 @@
-import constants
 from copy import copy
+
+import constants
 from config import logger
 
-from showdown.damage_calculator import damage_multipication_array
-from showdown.damage_calculator import pokemon_type_indicies
-from showdown.helpers import accuracy_multiplier_lookup
-
+from .damage_calculator import type_effectiveness_modifier
 from .special_effects.abilities.on_switch_in import ability_on_switch_in
 from .special_effects.items.end_of_turn import item_end_of_turn
 from .special_effects.abilities.end_of_turn import ability_end_of_turn
@@ -46,6 +44,23 @@ SPECIAL_LOGIC_MOVES = {
     constants.SAND,
     constants.HAIL,
     constants.TRICK_ROOM,
+}
+
+
+accuracy_multiplier_lookup = {
+    -6: 3/9,
+    -5: 3/8,
+    -4: 3/7,
+    -3: 3/6,
+    -2: 3/5,
+    -1: 3/4,
+    0: 3/3,
+    1: 4/3,
+    2: 5/3,
+    3: 6/3,
+    4: 7/3,
+    5: 8/3,
+    6: 9/3
 }
 
 
@@ -163,10 +178,7 @@ def get_instructions_from_switch(mutator, attacker, switch_pokemon_name, instruc
 
         # account for stealth rock damage
         if attacking_side.side_conditions[constants.STEALTH_ROCK] == 1:
-            multiplier = 1
-            rock_type_index = pokemon_type_indicies['rock']
-            for pkmn_type in switch_pkmn.types:
-                multiplier *= damage_multipication_array[rock_type_index][pokemon_type_indicies[pkmn_type]]
+            multiplier = type_effectiveness_modifier('rock', switch_pkmn.types)
 
             instruction_additions.append(
                 (
@@ -318,6 +330,9 @@ def get_instructions_from_statuses_that_freeze_the_state(mutator, attacker, defe
     if constants.POWDER in move[constants.FLAGS] and ('grass' in defender_side.active.types or defender_side.active.ability == 'overcoat'):
         instruction.frozen = True
 
+    if move[constants.TYPE] == 'electric' and 'ground' in defender_side.active.types:
+        instruction.frozen = True
+
     mutator.reverse(instruction.instructions)
 
     return instructions
@@ -339,6 +354,16 @@ def get_states_from_damage(mutator, defender, damage, accuracy, attacking_move, 
     move_flags = attacking_move.get(constants.FLAGS, {})
 
     mutator.apply(instruction.instructions)
+
+    if attacker_side.active.ability in constants.TYPE_CHANGE_ABILITIES and [attacking_move[constants.TYPE]] != attacker_side.active.types:
+        type_change_instruction = (
+            constants.MUTATOR_CHANGE_TYPE,
+            attacker,
+            [attacking_move[constants.TYPE]],
+            attacker_side.active.types
+        )
+        mutator.apply_one(type_change_instruction)
+        instruction.add_instruction(type_change_instruction)
 
     if accuracy is True:
         accuracy = 100
@@ -371,7 +396,7 @@ def get_states_from_damage(mutator, defender, damage, accuracy, attacking_move, 
     instruction_additions = []
     move_missed_instruction = copy(instruction)
     if percent_hit > 0:
-        if constants.SUBSTITUTE in damage_side.active.volatile_status and constants.SOUND not in move_flags:
+        if constants.SUBSTITUTE in damage_side.active.volatile_status and constants.SOUND not in move_flags and attacker_side.active.ability != 'infiltrator':
             if damage >= damage_side.active.maxhp * 0.25:
                 actual_damage = damage_side.active.maxhp * 0.25
                 instruction_additions.append(
@@ -960,6 +985,16 @@ def get_end_of_turn_instructions(mutator, instruction, bot_move, opponent_move, 
             mutator.apply_one(remove_roost_instruction)
             instruction.add_instruction(remove_roost_instruction)
 
+        if constants.PARTIALLY_TRAPPED in pkmn.volatile_status:
+            damage_taken = max(0, int(min(pkmn.maxhp * 0.125, pkmn.hp)))
+            partially_trapped_damage_instruction = (
+                constants.MUTATOR_DAMAGE,
+                attacker,
+                damage_taken
+            )
+            mutator.apply_one(partially_trapped_damage_instruction)
+            instruction.add_instruction(partially_trapped_damage_instruction)
+
     # disable not used moves if choice-item is held
     for attacker in sides:
         side = get_side_from_state(mutator.state, attacker)
@@ -1155,9 +1190,7 @@ def immune_to_status(state, defending_pkmn, attacking_pkmn, status):
 
 
 def is_immune_to_paralysis(defending_pkmn):
-    # not entirely correct as ground pokemon can be paralyzed by non-electric attacks
     return (
-            'ground' in defending_pkmn.types
-            or 'electric' in defending_pkmn.types
-            or defending_pkmn.ability in constants.IMMUNE_TO_PARALYSIS_ABILITIES
+        'electric' in defending_pkmn.types
+        or defending_pkmn.ability in constants.IMMUNE_TO_PARALYSIS_ABILITIES
     )
