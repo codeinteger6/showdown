@@ -576,6 +576,37 @@ class TestMove(unittest.TestCase):
 
         self.assertFalse(self.battle.opponent.active.can_have_choice_item)
 
+    def test_sets_can_have_life_orb_to_false_if_damaging_move_is_used(self):
+        # if a damaging move is used, we no longer want to guess lifeorb as an item
+        self.battle.opponent.active.can_have_life_orb = True
+        split_msg = ['', 'move', 'p2a: Caterpie', 'Tackle']
+
+        move(self.battle, split_msg)
+
+        self.assertFalse(self.battle.opponent.active.can_have_life_orb)
+
+    def test_does_not_set_can_have_life_orb_to_false_if_pokemon_could_have_sheerforce(self):
+        # mawile could have sheerforce
+        # we shouldn't set the lifeorb flag to False because sheerforce doesn't reveal lifeorb when a damaging move is used
+        self.battle.opponent.active.name = 'mawile'
+        self.battle.opponent.active.can_have_life_orb = True
+        split_msg = ['', 'move', 'p2a: Mawile', 'Tackle']
+
+        move(self.battle, split_msg)
+
+        self.assertTrue(self.battle.opponent.active.can_have_life_orb)
+
+    def test_does_not_set_can_have_life_orb_to_false_if_pokemon_could_have_magic_guard(self):
+        # clefable could have magic guard
+        # we shouldn't set the lifeorb flag to False because magic guard doesn't reveal lifeorb when a damaging move is used
+        self.battle.opponent.active.name = 'clefable'
+        self.battle.opponent.active.can_have_life_orb = True
+        split_msg = ['', 'move', 'p2a: Clefable', 'Tackle']
+
+        move(self.battle, split_msg)
+
+        self.assertTrue(self.battle.opponent.active.can_have_life_orb)
+
 
 class TestWeather(unittest.TestCase):
     def setUp(self):
@@ -1212,6 +1243,19 @@ class TestGuessChoiceScarf(unittest.TestCase):
         check_choicescarf(self.battle, messages)
 
         self.assertEqual('choicescarf', self.battle.opponent.active.item)
+
+    def test_does_not_guess_choicescarf_when_opponent_could_have_prankster(self):
+        self.battle.opponent.active.name = 'grimmsnarl'  # grimmsnarl could have prankster - it's non-damaging moves get +1 priority
+        self.battle.user.active.stats[constants.SPEED] = 245  # opponent's speed should not be greater than 240 (max speed grimmsnarl)
+
+        messages = [
+            '|move|p2a: Grimmsnarl|Stealth Rock|',
+            '|move|p1a: Caterpie|Stealth Rock|'
+        ]
+
+        check_choicescarf(self.battle, messages)
+
+        self.assertEqual(constants.UNKNOWN_ITEM, self.battle.opponent.active.item)
 
     def test_does_not_guess_choicescarf_when_opponent_is_speed_boosted(self):
         self.battle.user.active.stats[constants.SPEED] = 210  # opponent's speed should not be greater than 207 (max speed caterpie)
