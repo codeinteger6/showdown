@@ -1,7 +1,10 @@
 import unittest
 import json
+from collections import defaultdict
 
 import constants
+from showdown.helpers import calculate_stats
+
 from showdown.battle import Battle
 from showdown.battle import Pokemon
 from showdown.battle import Move
@@ -27,6 +30,7 @@ from showdown.battle_modifier import clearnegativeboost
 from showdown.battle_modifier import check_choicescarf
 from showdown.battle_modifier import get_damage_dealt
 from showdown.battle_modifier import singleturn
+from showdown.battle_modifier import transform
 from showdown.battle_modifier import update_battle
 
 
@@ -396,6 +400,89 @@ class TestSwitchOrDrag(unittest.TestCase):
 
         self.assertEqual(expected_last_move, self.battle.opponent.last_used_move)
 
+    def test_ditto_switching_sets_ability_to_none(self):
+        ditto = Pokemon('ditto', 100)
+        ditto.ability = "some_ability"
+        ditto.volatile_statuses.append(constants.TRANSFORM)
+        self.battle.opponent.active = ditto
+        split_msg = ['', 'switch', 'p2a: weedle', 'Weedle, L100, M', '100/100']
+        switch_or_drag(self.battle, split_msg)
+
+        if self.battle.opponent.reserve[0] != ditto:
+            self.fail("Ditto was not moved to reserves")
+
+        self.assertIsNone(ditto.ability)
+
+    def test_ditto_switching_sets_moves_to_empty_list(self):
+        ditto = Pokemon('ditto', 100)
+        ditto.moves = [Move('tackle'), Move('stringshot')]
+        ditto.volatile_statuses.append(constants.TRANSFORM)
+        self.battle.opponent.active = ditto
+
+        split_msg = ['', 'switch', 'p2a: weedle', 'Weedle, L100, M', '100/100']
+        switch_or_drag(self.battle, split_msg)
+
+        if self.battle.opponent.reserve[0] != ditto:
+            self.fail("Ditto was not moved to reserves")
+
+        self.assertEqual([], ditto.moves)
+
+    def test_ditto_switching_resets_stats(self):
+        ditto = Pokemon('ditto', 100)
+        ditto.stats = {
+            constants.ATTACK: 1,
+            constants.DEFENSE: 2,
+            constants.SPECIAL_ATTACK: 3,
+            constants.SPECIAL_DEFENSE: 4,
+            constants.SPEED: 5,
+        }
+        ditto.volatile_statuses.append(constants.TRANSFORM)
+        self.battle.opponent.active = ditto
+
+        split_msg = ['', 'switch', 'p2a: weedle', 'Weedle, L100, M', '100/100']
+        switch_or_drag(self.battle, split_msg)
+
+        if self.battle.opponent.reserve[0] != ditto:
+            self.fail("Ditto was not moved to reserves")
+
+        expected_stats = calculate_stats(ditto.base_stats, ditto.level)
+
+        self.assertEqual(expected_stats, ditto.stats)
+
+    def test_ditto_switching_resets_boosts(self):
+        ditto = Pokemon('ditto', 100)
+        ditto.boosts = {
+            constants.ATTACK: 1,
+            constants.DEFENSE: 2,
+            constants.SPECIAL_ATTACK: 3,
+            constants.SPECIAL_DEFENSE: 4,
+            constants.SPEED: 5,
+        }
+        ditto.volatile_statuses.append(constants.TRANSFORM)
+        self.battle.opponent.active = ditto
+
+        split_msg = ['', 'switch', 'p2a: weedle', 'Weedle, L100, M', '100/100']
+        switch_or_drag(self.battle, split_msg)
+
+        if self.battle.opponent.reserve[0] != ditto:
+            self.fail("Ditto was not moved to reserves")
+
+        self.assertEqual({}, ditto.boosts)
+
+    def test_ditto_switching_resets_types(self):
+        ditto = Pokemon('ditto', 100)
+        ditto.types = ['fairy', 'flying']
+        ditto.volatile_statuses.append(constants.TRANSFORM)
+        self.battle.opponent.active = ditto
+
+        split_msg = ['', 'switch', 'p2a: weedle', 'Weedle, L100, M', '100/100']
+        switch_or_drag(self.battle, split_msg)
+
+        if self.battle.opponent.reserve[0] != ditto:
+            self.fail("Ditto was not moved to reserves")
+
+        self.assertEqual(['normal'], ditto.types)
+
 
 class TestHealOrDamage(unittest.TestCase):
     def setUp(self):
@@ -414,7 +501,7 @@ class TestHealOrDamage(unittest.TestCase):
         self.battle.user.active = self.user_active
 
     def test_sets_ability_when_the_information_is_present(self):
-        split_msg = ['', '-heal', 'p2a: Quagsire', '68/100', '[from] ability: Water Absorb', '[of] p2a: Genesect']
+        split_msg = ['', '-heal', 'p2a: Quagsire', '68/100', '[from] ability: Water Absorb', '[of] p1a: Genesect']
         heal_or_damage(self.battle, split_msg)
         self.assertEqual('waterabsorb', self.battle.opponent.active.ability)
 
@@ -495,6 +582,17 @@ class TestHealOrDamage(unittest.TestCase):
         split_msg = ['', '-damage', 'p2a: Caterpie', '50/100 tox', '[from] item: Life Orb']
         heal_or_damage(self.battle, split_msg)
         self.assertEqual(0, self.battle.opponent.side_conditions[constants.TOXIC_COUNT])
+
+    def test_healing_from_ability_sets_ability_to_opponent(self):
+        split_msg = ['', '-heal', 'p2a: Caterpie', '50/100', '[from] ability: Volt Absorb', '[of] p1a: Caterpie']
+        heal_or_damage(self.battle, split_msg)
+        self.assertEqual('voltabsorb', self.battle.opponent.active.ability)
+
+    def test_healing_from_ability_does_not_set_bots_ability(self):
+        self.battle.user.active.ability = None
+        split_msg = ['', '-heal', 'p2a: Caterpie', '50/100', '[from] ability: Volt Absorb', '[of] p1a: Caterpie']
+        heal_or_damage(self.battle, split_msg)
+        self.assertIsNone(self.battle.user.active.ability)
 
 
 class TestMove(unittest.TestCase):
@@ -1226,6 +1324,268 @@ class TestSingleTurn(unittest.TestCase):
         self.assertEqual(2, self.battle.opponent.side_conditions[constants.PROTECT])
 
 
+class TestTransform(unittest.TestCase):
+    def setUp(self):
+        self.battle = Battle(None)
+        self.battle.user.name = 'p1'
+        self.battle.opponent.name = 'p2'
+
+        self.opponent_active = Pokemon('Ditto', 100)
+        self.battle.opponent.active = self.opponent_active
+
+        self.user_active = Pokemon('weedle', 100)
+        self.battle.user.active = self.user_active
+
+        self.username = "CoolUsername"
+
+        self.battle.username = self.username
+
+        self.user_active_stats = {
+          "atk": 103,
+          "def": 214,
+          "spa": 118,
+          "spd": 132,
+          "spe": 132
+        }
+        self.user_active_ability = "levitate"
+        self.user_active_moves = [
+          "dracometeor",
+          "darkpulse",
+          "flashcannon",
+          "fireblast"
+        ]
+        self.request_json = {
+          "active": [
+            {
+              "moves": [
+                {
+                  "move": "Draco Meteor",
+                  "id": "dracometeor",
+                  "pp": 5,
+                  "maxpp": 5,
+                  "target": "normal",
+                  "disabled": False
+                },
+                {
+                  "move": "Dark Pulse",
+                  "id": "darkpulse",
+                  "pp": 5,
+                  "maxpp": 5,
+                  "target": "any",
+                  "disabled": False
+                },
+                {
+                  "move": "Flash Cannon",
+                  "id": "flashcannon",
+                  "pp": 5,
+                  "maxpp": 5,
+                  "target": "normal",
+                  "disabled": False
+                },
+                {
+                  "move": "Fire Blast",
+                  "id": "fireblast",
+                  "pp": 5,
+                  "maxpp": 5,
+                  "target": "normal",
+                  "disabled": False
+                }
+              ],
+              "canDynamax": True,
+              "maxMoves": {
+                "maxMoves": [
+                  {
+                    "move": "maxwyrmwind",
+                    "target": "adjacentFoe"
+                  },
+                  {
+                    "move": "maxdarkness",
+                    "target": "adjacentFoe"
+                  },
+                  {
+                    "move": "maxsteelspike",
+                    "target": "adjacentFoe"
+                  },
+                  {
+                    "move": "maxflare",
+                    "target": "adjacentFoe"
+                  }
+                ]
+              }
+            }
+          ],
+          "side": {
+            "name": "BigBluePikachu",
+            "id": "p2",
+            "pokemon": [
+              {
+                "ident": "p1: Weedle",
+                "details": "Weedle",
+                "condition": "299/299",
+                "active": True,
+                "stats": self.user_active_stats,
+                "moves": self.user_active_moves,
+                "baseAbility": self.user_active_ability,
+                "item": "choicescarf",
+                "pokeball": "pokeball",
+                "ability": self.user_active_ability
+              },
+              {
+                "ident": "p1: Charmander",
+                "details": "Charmander",
+                "condition": "299/299",
+                "active": False,
+                "stats": {
+                  "atk": 1,
+                  "def": 2,
+                  "spa": 3,
+                  "spd": 4,
+                  "spe": 5
+                },
+                "moves": [
+                    "flamethrower",
+                    "firespin",
+                    "scratch",
+                    "growl"
+                ],
+                "baseAbility": "blaze",
+                "item": "sitrusberry",
+                "pokeball": "pokeball",
+                "ability": "blaze"
+              }
+            ]
+          }
+        }
+
+        self.battle.request_json = self.request_json
+
+    def test_transform_into_switching_pokemon_properly_copies_the_pokemon_that_was_in_before_the_switch(self):
+        split_msg = ['', '-transform', 'p2a: Ditto', 'p1a: Charmander', '[from] ability: Imposter']
+
+        expected_stats = {
+            constants.ATTACK: 1,
+            constants.DEFENSE: 2,
+            constants.SPECIAL_ATTACK: 3,
+            constants.SPECIAL_DEFENSE: 4,
+            constants.SPEED: 5
+        }
+
+        expected_boosts = {
+            constants.ATTACK: 1,
+            constants.DEFENSE: 2,
+            constants.SPECIAL_ATTACK: 3,
+            constants.SPECIAL_DEFENSE: 4,
+            constants.SPEED: 5,
+        }
+
+        expected_ability = 'blaze'
+        expected_moves = [
+            Move('flamethrower'),
+            Move('firespin'),
+            Move('scratch'),
+            Move('growl')
+        ]
+        expected_types = [
+            'fire'
+        ]
+
+        # the charmander is active when the switch occurs
+        # the charmander pokemon from the request json should be used for stats
+        self.battle.user.active = Pokemon('Charmander', 100)
+        self.battle.user.active.moves = expected_moves
+        self.battle.user.active.boosts = expected_boosts
+        self.battle.user.reserve = [
+            Pokemon('Weedle', 100)
+        ]
+
+        transform(self.battle, split_msg)
+
+        self.assertEqual(expected_stats, self.battle.opponent.active.stats)
+        self.assertEqual(expected_ability, self.battle.opponent.active.ability)
+        self.assertEqual(expected_moves, self.battle.opponent.active.moves)
+        self.assertEqual(expected_types, self.battle.opponent.active.types)
+        self.assertEqual(expected_boosts, self.battle.opponent.active.boosts)
+
+    def test_transform_sets_stats_to_opposing_pokemons_stats(self):
+        split_msg = ['', '-transform', 'p2a: Ditto', 'p1a: Weedle', '[from] ability: Imposter']
+
+        if self.battle.user.active.stats == self.battle.opponent.active.stats:
+            self.fail("Stats were equal before transform")
+
+        expected_stats = {
+            constants.ATTACK: 103,
+            constants.DEFENSE: 214,
+            constants.SPECIAL_ATTACK: 118,
+            constants.SPECIAL_DEFENSE: 132,
+            constants.SPEED: 132
+        }
+
+        transform(self.battle, split_msg)
+
+        self.assertEqual(expected_stats, self.battle.opponent.active.stats)
+
+    def test_transform_sets_ability_to_opposing_pokemons_ability(self):
+        self.battle.user.active.ability = self.user_active_ability
+        self.battle.opponent.active.ability = None
+        split_msg = ['', '-transform', 'p2a: Ditto', 'p1a: Weedle', '[from] ability: Imposter']
+
+        if self.battle.user.active.ability == self.battle.opponent.active.ability:
+            self.fail("Abilities were equal before transform")
+
+        transform(self.battle, split_msg)
+
+        self.assertEqual(self.user_active_ability, self.battle.opponent.active.ability)
+
+    def test_transform_sets_moves_to_opposing_pokemons_moves(self):
+        self.battle.user.active.moves = [
+            Move('dracometeor'),
+            Move('darkpulse'),
+            Move('flashcannon'),
+            Move('fireblast'),
+        ]
+        split_msg = ['', '-transform', 'p2a: Ditto', 'p1a: Weedle', '[from] ability: Imposter']
+
+        if self.battle.user.active.moves == self.battle.opponent.active.moves:
+            self.fail("Moves were equal before transform")
+
+        transform(self.battle, split_msg)
+
+        self.assertEqual(self.battle.user.active.moves, self.battle.opponent.active.moves)
+
+    def test_transform_sets_types_to_opposing_pokemons_types(self):
+        self.battle.user.active.moves = ['flying', 'dragon']
+        self.battle.opponent.active.moves = ['normal']
+        split_msg = ['', '-transform', 'p2a: Ditto', 'p1a: Weedle', '[from] ability: Imposter']
+
+        transform(self.battle, split_msg)
+
+        self.assertEqual(self.battle.user.active.types, self.battle.opponent.active.types)
+
+    def test_transform_sets_boosts_to_opposing_pokemons_boosts(self):
+        self.battle.user.active.boosts = defaultdict(lambda: 0, {
+            constants.ATTACK: 1,
+            constants.DEFENSE: 2,
+            constants.SPECIAL_ATTACK: 3,
+            constants.SPECIAL_DEFENSE: 4,
+            constants.SPEED: 5,
+        })
+        self.battle.opponent.active.boosts = {}
+
+        split_msg = ['', '-transform', 'p2a: Ditto', 'p1a: Weedle', '[from] ability: Imposter']
+
+        transform(self.battle, split_msg)
+
+        self.assertEqual(self.battle.user.active.boosts, self.battle.opponent.active.boosts)
+
+    def test_transform_sets_transform_volatile_status(self):
+        self.battle.user.active.volatile_statuses = []
+        split_msg = ['', '-transform', 'p2a: Ditto', 'p1a: Weedle', '[from] ability: Imposter']
+
+        transform(self.battle, split_msg)
+
+        self.assertIn(constants.TRANSFORM, self.battle.opponent.active.volatile_statuses)
+
+
 class TestGuessChoiceScarf(unittest.TestCase):
     def setUp(self):
         self.battle = Battle(None)
@@ -1547,6 +1907,25 @@ class TestGetDamageDealt(unittest.TestCase):
         expected_damage_amount_dealt = DamageDealt(attacker='pikachu', defender='caterpie', move='tackle', percent_damage=0.20, crit=False)
         self.assertEqual(expected_damage_amount_dealt, damage_dealt)
 
+    def test_assigns_damage_when_bots_pokemon_has_no_last_used_move(self):
+        self.battle.user.active.max_hp = 250
+        self.battle.user.active.hp = 250
+
+        messages = [
+            '|move|p2a: Pikachu|Tackle|p1a: Caterpie',
+            '|-damage|p1a: Caterpie|200/250',  # 50 / 250 = 0.20 of total health
+            '|',
+            '|move|p1a: Caterpie|Tackle|p2a: Pikachu',
+            '|-damage|p2a: Pikachu|90/100',
+        ]
+
+        split_msg = messages[0].split('|')
+
+        damage_dealt = get_damage_dealt(self.battle, split_msg, messages[1:])
+
+        expected_damage_amount_dealt = DamageDealt(attacker='pikachu', defender='caterpie', move='tackle', percent_damage=0.20, crit=False)
+        self.assertEqual(expected_damage_amount_dealt, damage_dealt)
+
     def test_supereffective_damage_is_captured(self):
         self.battle.user.active.max_hp = 250
         self.battle.user.active.hp = 250
@@ -1700,10 +2079,10 @@ class TestGetDamageDealt(unittest.TestCase):
 
         damage_dealt = get_damage_dealt(self.battle, split_msg, messages[1:])
 
-        expected_damage_amount_dealt = DamageDealt(attacker='caterpie', defender='pikachu', move='tackle', percent_damage=1, crit=False)
+        expected_damage_amount_dealt = DamageDealt(attacker='caterpie', defender='pikachu', move='tackle', percent_damage=0.01, crit=False)
         self.assertEqual(expected_damage_amount_dealt, damage_dealt)
 
-    def test_assigns_damage_to_opponent_on_faint(self):
+    def test_assigns_damage_to_opponent_on_faint_from_1_hp(self):
         self.battle.opponent.active.max_hp = 250
         self.battle.opponent.active.hp = 250
 

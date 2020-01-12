@@ -10,6 +10,7 @@ from showdown.battle import LastUsedMove
 from showdown.battle import DamageDealt
 from showdown.helpers import normalize_name
 from showdown.helpers import get_pokemon_info_from_condition
+from showdown.helpers import calculate_stats
 from showdown.engine.find_state_instructions import get_effective_speed
 from showdown.engine.damage_calculator import calculate_damage
 
@@ -55,6 +56,14 @@ def switch_or_drag(battle, split_msg):
         side.side_conditions[constants.TOXIC_COUNT] = 0
 
     if side.active is not None:
+        # if the target was transformed, reset its transformed attributes
+        if constants.TRANSFORM in side.active.volatile_statuses:
+            logger.debug("{} was transformed. Resetting its transformed attributes")
+            side.active.stats = calculate_stats(side.active.base_stats, side.active.level)
+            side.active.ability = None
+            side.active.moves = []
+            side.active.types = pokedex[side.active.name][constants.TYPES]
+
         # reset the boost of the pokemon being replaced
         side.active.boosts.clear()
 
@@ -120,22 +129,23 @@ def heal_or_damage(battle, split_msg):
         logger.debug("Setting {}'s item to: {}".format(other_side.active.name, item))
         other_side.active.item = item
 
-    if len(split_msg) == 6 and split_msg[4].startswith('[from] ability:') and other_side.name in split_msg[5]:
+    # set the ability for the other side (the side not taking damage, '-damage' only)
+    if len(split_msg) == 6 and split_msg[4].startswith('[from] ability:') and other_side.name in split_msg[5] and split_msg[1] == '-damage':
         ability = normalize_name(split_msg[4].split('ability:')[-1])
         logger.debug("Setting {}'s ability to: {}".format(other_side.active.name, ability))
         other_side.active.ability = ability
+
+    # set the ability of the side (the side being healed, '-heal' only)
+    if len(split_msg) == 6 and constants.ABILITY in split_msg[4] and other_side.name in split_msg[5] and split_msg[1] == '-heal':
+        ability = normalize_name(split_msg[4].split(constants.ABILITY)[-1].strip(": "))
+        logger.debug("Setting {}'s ability to: {}".format(pkmn.name, ability))
+        pkmn.ability = ability
 
     # give that pokemon an item if this string specifies one
     if len(split_msg) == 5 and constants.ITEM in split_msg[4] and pkmn.item is not None:
         item = normalize_name(split_msg[4].split(constants.ITEM)[-1].strip(": "))
         logger.debug("Setting {}'s item to: {}".format(pkmn.name, item))
         pkmn.item = item
-
-    # set the ability if the information is shown
-    if len(split_msg) >= 5 and constants.ABILITY in split_msg[4]:
-        ability = normalize_name(split_msg[4].split(constants.ABILITY)[-1].strip(": "))
-        logger.debug("Setting {}'s ability to: {}".format(pkmn.name, ability))
-        pkmn.ability = ability
 
 
 def faint(battle, split_msg):
@@ -184,20 +194,23 @@ def move(battle, split_msg):
 
     try:
         category = all_move_json[move_name][constants.CATEGORY]
+        logger.debug("Setting {}'s last used move: {}".format(pkmn.name, move_name))
+        side.last_used_move = LastUsedMove(
+            pokemon_name=pkmn.name,
+            move=move_name
+        )
     except KeyError:
         category = None
+        side.last_used_move = LastUsedMove(
+            pokemon_name=pkmn.name,
+            move=constants.DO_NOTHING_MOVE
+        )
 
     # if this pokemon used a damaging move, eliminate the possibility of it having a lifeorb
     # the lifeorb will reveal itself if it has it
     if category in constants.DAMAGING_CATEGORIES and not any([normalize_name(a) in ['sheerforce', 'magicguard'] for a in pokedex[pkmn.name][constants.ABILITIES].values()]):
         logger.debug("{} used a damaging move - not guessing lifeorb anymore".format(pkmn.name))
         pkmn.can_have_life_orb = False
-
-    logger.debug("Setting {}'s last used move: {}".format(pkmn.name, move_name))
-    side.last_used_move = LastUsedMove(
-        pokemon_name=pkmn.name,
-        move=move_name
-    )
 
 
 def boost(battle, split_msg):
@@ -506,6 +519,30 @@ def mega(battle, split_msg):
     logger.debug("Mega-Pokemon: {}".format(side.active.name))
 
 
+def transform(battle, split_msg):
+    if is_opponent(battle, split_msg):
+        transformed_into_name = normalize_name(split_msg[3].split(':')[1])
+
+        battle_copy = deepcopy(battle)
+        battle.opponent.active.boosts = deepcopy(battle.user.active.boosts)
+
+        battle_copy.user.from_json(battle_copy.request_json)
+
+        if battle_copy.user.active.name == transformed_into_name or battle_copy.user.active.name.startswith(transformed_into_name):
+            transformed_into = battle_copy.user.active
+        else:
+            transformed_into = find_pokemon_in_reserves(transformed_into_name, battle_copy.user.reserve)
+
+        logger.debug("Opponent {} transformed into {}".format(battle.opponent.active.name, battle.user.active.name))
+        battle.opponent.active.stats = deepcopy(transformed_into.stats)
+        battle.opponent.active.ability = deepcopy(transformed_into.ability)
+        battle.opponent.active.moves = deepcopy(transformed_into.moves)
+        battle.opponent.active.types = deepcopy(transformed_into.types)
+
+        if constants.TRANSFORM not in battle.opponent.active.volatile_statuses:
+            battle.opponent.active.volatile_statuses.append(constants.TRANSFORM)
+
+
 def check_choicescarf(battle, msg_lines):
     def get_move_information(m):
         try:
@@ -678,6 +715,7 @@ def update_battle(battle, msg):
             'detailschange': form_change,
             'replace': form_change,
             '-formechange': form_change,
+            '-transform': transform,
             '-mega': mega,
             '-zpower': zpower,
             '-clearnegativeboost': clearnegativeboost,
