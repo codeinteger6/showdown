@@ -2969,6 +2969,41 @@ class TestGetStateInstructions(unittest.TestCase):
 
         self.assertEqual(expected_instructions, instructions)
 
+    def test_auroraveil_fails_without_hail(self):
+        bot_move = "auroraveil"
+        opponent_move = "splash"
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_auroraveil_works_in_hail(self):
+        bot_move = "auroraveil"
+        opponent_move = "splash"
+        self.state.weather = constants.HAIL
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                    (constants.MUTATOR_SIDE_START, constants.SELF, constants.AURORA_VEIL, 1),
+
+                    # hail damage since neither are ice type
+                    (constants.MUTATOR_DAMAGE, constants.SELF, 13),
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 18)
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
     def test_pursuit_into_switch_causes_pursuit_to_happen_first_with_double_damage(self):
         bot_move = "pursuit"
         opponent_move = "switch yveltal"
@@ -7720,6 +7755,40 @@ class TestGetStateInstructions(unittest.TestCase):
                 [
                     (constants.MUTATOR_DAMAGE, constants.OPPONENT, 45)
                 ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_liquidvoice_boosts_sound_move_into_water_and_hits_ghost_type(self):
+        bot_move = "hypervoice"
+        opponent_move = "splash"
+        self.state.self.active.ability = 'liquidvoice'
+        self.state.opponent.active.types = ['ghost']  # make sure it hits a ghost type
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 48)
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_liquidvoice_versus_waterabsorb(self):
+        bot_move = "hypervoice"
+        opponent_move = "splash"
+        self.state.self.active.ability = 'liquidvoice'
+        self.state.opponent.active.ability = 'waterabsorb'
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [],
                 False
             )
         ]
