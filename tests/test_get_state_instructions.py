@@ -1417,7 +1417,7 @@ class TestGetStateInstructions(unittest.TestCase):
 
         self.assertEqual(expected_instructions, instructions)
 
-    def test_parting_show_allows_switch(self):
+    def test_parting_shot_allows_switch(self):
         self.state.self.active.types = ['ground']
         bot_move = "tackle"
         opponent_move = "partingshot"
@@ -1432,6 +1432,25 @@ class TestGetStateInstructions(unittest.TestCase):
                     (constants.MUTATOR_BOOST, constants.SELF, constants.SPECIAL_ATTACK, -1),
                     (constants.MUTATOR_SWITCH, constants.OPPONENT, 'aromatisse', 'bronzong'),
                     (constants.MUTATOR_DAMAGE, constants.OPPONENT, 6)
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_teleport_causes_switch_and_moves_second(self):
+        bot_move = "tackle"
+        opponent_move = "teleport"
+        self.state.self.active.speed = 1
+        self.state.opponent.active.speed = 2
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1.0,
+                [
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 25),
+                    (constants.MUTATOR_SWITCH, constants.OPPONENT, 'aromatisse', 'yveltal')
                 ],
                 False
             )
@@ -3156,6 +3175,24 @@ class TestGetStateInstructions(unittest.TestCase):
                 1,
                 [
                     (constants.MUTATOR_DAMAGE, constants.OPPONENT, 63)
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_growth_boosts_by_two_in_the_sun(self):
+        bot_move = "growth"
+        opponent_move = "splash"
+        self.state.weather = constants.SUN
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                    (constants.MUTATOR_BOOST, constants.SELF, constants.ATTACK, 2),
+                    (constants.MUTATOR_BOOST, constants.SELF, constants.SPECIAL_ATTACK, 2),
                 ],
                 False
             )
