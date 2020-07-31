@@ -143,7 +143,7 @@ def technoblast(attacking_move, defending_move, attacking_pokemon, defending_pok
 
 
 def multiattack(attacking_move, defending_move, attacking_pokemon, defending_pokemon, first_move, weather, terrain):
-    if attacking_pokemon.item.endswith('memory'):
+    if attacking_pokemon.item is not None and attacking_pokemon.item.endswith('memory'):
         attacking_move = attacking_move.copy()
         attacking_move[constants.TYPE] = attacking_pokemon.item.replace('memory', '')
 
@@ -151,8 +151,7 @@ def multiattack(attacking_move, defending_move, attacking_pokemon, defending_pok
 
 
 def knockoff(attacking_move, defending_move, attacking_pokemon, defending_pokemon, first_move, weather, terrain):
-    # .endswith("mega|primal") is a hack but w/e sue me
-    if defending_pokemon.item is not None and not defending_pokemon.id.endswith("mega") and not defending_pokemon.id.endswith("primal"):
+    if defending_pokemon.item_can_be_removed():
         attacking_move = attacking_move.copy()
         attacking_move[constants.BASE_POWER] *= 1.5
     return attacking_move
@@ -474,7 +473,29 @@ def surgingstrikes(attacking_move, defending_move, attacking_pokemon, defending_
     return attacking_move
 
 
+def weatherball(attacking_move, defending_move, attacking_pokemon, defending_pokemon, first_move, weather, terrain):
+    if weather == constants.SUN:
+        attacking_move = attacking_move.copy()
+        attacking_move[constants.TYPE] = 'fire'
+        attacking_move[constants.BASE_POWER] *= 2
+    elif weather == constants.RAIN:
+        attacking_move = attacking_move.copy()
+        attacking_move[constants.TYPE] = 'water'
+        attacking_move[constants.BASE_POWER] *= 2
+    elif weather == constants.HAIL:
+        attacking_move = attacking_move.copy()
+        attacking_move[constants.TYPE] = 'ice'
+        attacking_move[constants.BASE_POWER] *= 2
+    elif weather == constants.SAND:
+        attacking_move = attacking_move.copy()
+        attacking_move[constants.TYPE] = 'rock'
+        attacking_move[constants.BASE_POWER] *= 2
+
+    return attacking_move
+
+
 move_lookup = {
+    'weatherball': weatherball,
     'surgingstrikes': surgingstrikes,
     'wickedblow': wickedblow,
     'dualwingbeat': dualwingbeat,

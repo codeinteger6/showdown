@@ -169,6 +169,9 @@ def faint(battle, split_msg):
 
 
 def move(battle, split_msg):
+    if '[from]' in split_msg[-1]:
+        return
+
     move_name = normalize_name(split_msg[3].strip().lower())
 
     if is_opponent(battle, split_msg):
@@ -202,6 +205,15 @@ def move(battle, split_msg):
         if pkmn.item in constants.CHOICE_ITEMS:
             logger.warning("{} has a choice item, but used two different moves - setting it's item to UNKNOWN".format(pkmn.name))
             pkmn.item = constants.UNKNOWN_ITEM
+
+    # if the opponent uses a boosting status move, they cannot have a choice item
+    # this COULD be set for any status move, but some pkmn uncommonly run things like specs + wisp
+    try:
+        if constants.BOOSTS in all_move_json[move_name] and all_move_json[move_name][constants.CATEGORY] == constants.STATUS:
+            logger.debug("{} used a boosting status-move. Setting can_have_choice_item to False".format(pkmn.name))
+            pkmn.can_have_choice_item = False
+    except KeyError:
+        pass
 
     try:
         category = all_move_json[move_name][constants.CATEGORY]
@@ -267,6 +279,18 @@ def status(battle, split_msg):
     status_name = split_msg[3].strip()
     logger.debug("{} got status: {}".format(pkmn.name, status_name))
     pkmn.status = status_name
+
+
+def activate(battle, split_msg):
+    if is_opponent(battle, split_msg):
+        pkmn = battle.opponent.active
+    else:
+        pkmn = battle.user.active
+
+    if split_msg[3].lower() == 'move: poltergeist':
+        item = normalize_name(split_msg[4])
+        logger.debug("{} has the item {}".format(pkmn.name, item))
+        pkmn.item = item
 
 
 def start_volatile_status(battle, split_msg):
@@ -514,6 +538,20 @@ def clearnegativeboost(battle, split_msg):
             pkmn.boosts[stat] = 0
 
 
+def clearallboost(battle, _):
+    pkmn = battle.user.active
+    for stat, value in pkmn.boosts.items():
+        if value != 0:
+            logger.debug("Setting {}'s {} stat to 0".format(pkmn.name, stat))
+            pkmn.boosts[stat] = 0
+
+    pkmn = battle.opponent.active
+    for stat, value in pkmn.boosts.items():
+        if value != 0:
+            logger.debug("Setting {}'s {} stat to 0".format(pkmn.name, stat))
+            pkmn.boosts[stat] = 0
+
+
 def singleturn(battle, split_msg):
     if is_opponent(battle, split_msg):
         side = battle.opponent
@@ -739,6 +777,7 @@ def update_battle(battle, msg):
             '-boost': boost,
             '-unboost': unboost,
             '-status': status,
+            '-activate': activate,
             '-start': start_volatile_status,
             '-end': end_volatile_status,
             '-curestatus': curestatus,
@@ -759,6 +798,7 @@ def update_battle(battle, msg):
             '-mega': mega,
             '-zpower': zpower,
             '-clearnegativeboost': clearnegativeboost,
+            '-clearallboost': clearallboost,
             '-singleturn': singleturn,
             'upkeep': upkeep,
             'turn': turn

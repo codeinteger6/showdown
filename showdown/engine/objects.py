@@ -247,6 +247,10 @@ class Pokemon(object):
         self.burn_multiplier = self.calculate_burn_multiplier()
 
     def calculate_burn_multiplier(self):
+        # this will result in a positive evaluation for a burned pokemon
+        if self.ability in ['guts', 'marvelscale', 'quickfeet']:
+            return -2
+
         # +1 to the multiplier for each physical move
         burn_multiplier = len([m for m in self.moves if all_move_json[m[constants.ID]][constants.CATEGORY] == constants.PHYSICAL])
 
@@ -258,6 +262,20 @@ class Pokemon(object):
             burn_multiplier = int(burn_multiplier / 2)
 
         return burn_multiplier
+
+    def item_can_be_removed(self):
+        if (
+            self.item is None or
+            self.ability == 'stickyhold' or
+            'substitute' in self.volatile_status or
+            self.id in constants.POKEMON_CANNOT_HAVE_ITEMS_REMOVED or
+            self.id.endswith('mega') and self.id != 'yanmega' or  # yeah this is hacky but who are you to judge?
+            any(self.id.startswith(i) and self.id != i for i in constants.UNKOWN_POKEMON_FORMES) or
+            self.item.endswith('iumz')
+        ):
+            return False
+
+        return True
 
     @classmethod
     def from_state_pokemon_dict(cls, d):

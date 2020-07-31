@@ -7,6 +7,7 @@ from .damage_calculator import type_effectiveness_modifier
 from .special_effects.abilities.on_switch_in import ability_on_switch_in
 from .special_effects.items.end_of_turn import item_end_of_turn
 from .special_effects.abilities.end_of_turn import ability_end_of_turn
+from .special_effects.moves.after_move import after_move
 
 logger = logging.getLogger(__name__)
 
@@ -73,24 +74,6 @@ accuracy_multiplier_lookup = {
 }
 
 
-def can_trick_items(attacker, defender):
-    attacker_item = attacker.item or ''
-    defender_item = defender.item or ''
-
-    # item is trickable if none of the following wonditions is matched
-    return not (
-        not attacker_item and not defender_item or
-        constants.SUBSTITUTE in defender.volatile_status or
-        # z-crystals always end in 'iumz'
-        # https://bulbapedia.bulbagarden.net/wiki/Z-Crystal
-        attacker_item.endswith('iumz') or defender_item.endswith('iumz') or
-        ('silvally' in attacker.id or 'silvally' in defender.id) and (attacker_item.endswith('memory') or defender_item.endswith('memory')) or
-        ('arceus' in attacker.id or 'arceus' in defender.id) and (attacker_item.endswith('plate') or defender_item.endswith('plate')) or
-        ('genesect' in attacker.id or 'genesect' in defender.id) and (attacker_item.endswith('drive') or defender_item.endswith('drive')) or
-        defender.ability == 'stickyhold'
-    )    
-
-
 def get_instructions_from_special_logic_move(mutator, attacking_pokemon, defending_pokemon, move_name, instructions):
     if instructions.frozen:
         return [instructions]
@@ -106,7 +89,11 @@ def get_instructions_from_special_logic_move(mutator, attacking_pokemon, defendi
             (constants.MUTATOR_TOGGLE_TRICKROOM,)
         )
 
-    elif move_name in SWITCH_ITEM_MOVES and can_trick_items(attacking_pokemon, defending_pokemon):
+    elif (
+        move_name in SWITCH_ITEM_MOVES and
+        (defending_pokemon.item_can_be_removed() or defending_pokemon.item is None) and
+        not (defending_pokemon.item is None and attacking_pokemon.item is None)
+    ):
         new_instructions.append(
             (constants.MUTATOR_CHANGE_ITEM, constants.SELF, mutator.state.opponent.active.item, mutator.state.self.active.item)
         )
@@ -234,7 +221,7 @@ def get_instructions_from_switch(mutator, attacker, switch_pokemon_name, instruc
             instruction_additions.append(spikes_instruction)
 
         # account for stickyweb speed drop
-        if attacking_side.side_conditions[constants.STICKY_WEB] == 1 and switch_pkmn.is_grounded():
+        if attacking_side.side_conditions[constants.STICKY_WEB] == 1 and switch_pkmn.is_grounded() and switch_pkmn.ability not in constants.IMMUNE_TO_STAT_LOWERING_ABILITIES:
             sticky_web_instruction = (
                 constants.MUTATOR_UNBOOST,
                 attacker,
@@ -414,8 +401,10 @@ def get_states_from_damage(mutator, defender, damage, accuracy, attacking_move, 
     instructions = []
     instruction_additions = []
     move_missed_instruction = copy(instruction)
+    hit_sub = False
     if percent_hit > 0:
         if constants.SUBSTITUTE in damage_side.active.volatile_status and constants.SOUND not in move_flags and attacker_side.active.ability != 'infiltrator':
+            hit_sub = True
             if damage >= damage_side.active.maxhp * 0.25:
                 actual_damage = damage_side.active.maxhp * 0.25
                 instruction_additions.append(
@@ -463,6 +452,18 @@ def get_states_from_damage(mutator, defender, damage, accuracy, attacking_move, 
             )
             instruction_additions.append(recoil_instruction)
 
+        after_move_instructions = after_move(
+            attacking_move[constants.ID],
+            mutator.state,
+            attacker,
+            defender,
+            attacker_side,
+            damage_side,
+            True,
+            hit_sub
+        )
+        instruction_additions += after_move_instructions
+
         instructions.append(instruction)
 
     if percent_hit < 1:
@@ -485,6 +486,19 @@ def get_states_from_damage(mutator, defender, damage, accuracy, attacking_move, 
                 2
             )
             move_missed_instruction.add_instruction(blunder_policy_increase_speed_instruction)
+
+        after_move_instructions = after_move(
+            attacking_move[constants.ID],
+            mutator.state,
+            attacker,
+            defender,
+            attacker_side,
+            damage_side,
+            False,
+            False
+        )
+        for i in after_move_instructions:
+            move_missed_instruction.add_instruction(i)
 
         instructions.append(move_missed_instruction)
 
@@ -718,10 +732,13 @@ def get_states_from_boosts(mutator, side_string, boosts, accuracy, instruction):
     percent_hit = accuracy / 100
 
     mutator.apply(instruction.instructions)
-    instruction_additions = []
-
-    move_missed_instruction = copy(instruction)
     side = get_side_from_state(mutator.state, side_string)
+    if side.active.ability in constants.IMMUNE_TO_STAT_LOWERING_ABILITIES:
+        mutator.reverse(instruction.instructions)
+        return [instruction]
+
+    instruction_additions = []
+    move_missed_instruction = copy(instruction)
     if percent_hit > 0:
         for k, v in boosts.items():
             pkmn_boost = get_boost_from_boost_string(side, k)
@@ -859,7 +876,7 @@ def get_end_of_turn_instructions(mutator, instruction, bot_move, opponent_move, 
             mutator.apply_one(sand_damage_instruction)
             instruction.add_instruction(sand_damage_instruction)
 
-        elif mutator.state.weather == constants.HAIL and 'ice' not in pkmn.types:
+        elif mutator.state.weather == constants.HAIL and 'ice' not in pkmn.types and pkmn.ability != 'icebody':
             ice_damage_instruction = (
                 constants.MUTATOR_DAMAGE,
                 attacker,

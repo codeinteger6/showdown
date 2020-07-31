@@ -12,7 +12,9 @@ from showdown.battle import LastUsedMove
 from showdown.battle import DamageDealt
 
 from showdown.battle_modifier import request
+from showdown.battle_modifier import activate
 from showdown.battle_modifier import switch_or_drag
+from showdown.battle_modifier import clearallboost
 from showdown.battle_modifier import heal_or_damage
 from showdown.battle_modifier import move
 from showdown.battle_modifier import boost
@@ -605,6 +607,86 @@ class TestHealOrDamage(unittest.TestCase):
         self.assertIsNone(self.battle.user.active.ability)
 
 
+class TestActivate(unittest.TestCase):
+    def setUp(self):
+        self.battle = Battle(None)
+        self.battle.user.name = 'p1'
+        self.battle.opponent.name = 'p2'
+
+        self.user_active = Pokemon('caterpie', 100)
+        self.opponent_active = Pokemon('caterpie', 100)
+
+        # manually set hp to 200 for testing purposes
+        self.opponent_active.max_hp = 200
+        self.opponent_active.hp = 200
+
+        self.battle.opponent.active = self.opponent_active
+        self.battle.user.active = self.user_active
+
+    def test_sets_item_when_poltergeist_activates(self):
+        split_msg = ['', '-activate', 'p2a: Mandibuzz', 'Move: Poltergeist', 'Leftovers']
+        activate(self.battle, split_msg)
+        self.assertEqual('leftovers', self.battle.opponent.active.item)
+
+    def test_sets_item_when_poltergeist_activates_and_move_is_lowercase(self):
+        split_msg = ['', '-activate', 'p2a: Mandibuzz', 'move: Poltergeist', 'Leftovers']
+        activate(self.battle, split_msg)
+        self.assertEqual('leftovers', self.battle.opponent.active.item)
+
+
+class TestClearAllBoosts(unittest.TestCase):
+    def setUp(self):
+        self.battle = Battle(None)
+        self.battle.user.name = 'p1'
+        self.battle.opponent.name = 'p2'
+
+        self.user_active = Pokemon('caterpie', 100)
+        self.opponent_active = Pokemon('caterpie', 100)
+
+        # manually set hp to 200 for testing purposes
+        self.opponent_active.max_hp = 200
+        self.opponent_active.hp = 200
+
+        self.battle.opponent.active = self.opponent_active
+        self.battle.user.active = self.user_active
+
+    def test_clears_bots_boosts(self):
+        split_msg = ['', '-clearallboost']
+        self.battle.user.active.boosts = {
+            constants.ATTACK: 1,
+            constants.DEFENSE: 1
+        }
+        clearallboost(self.battle, split_msg)
+        self.assertEqual(0, self.battle.user.active.boosts[constants.ATTACK])
+        self.assertEqual(0, self.battle.user.active.boosts[constants.DEFENSE])
+
+    def test_clears_opponents_boosts(self):
+        split_msg = ['', '-clearallboost']
+        self.battle.opponent.active.boosts = {
+            constants.ATTACK: 1,
+            constants.DEFENSE: 1
+        }
+        clearallboost(self.battle, split_msg)
+        self.assertEqual(0, self.battle.opponent.active.boosts[constants.ATTACK])
+        self.assertEqual(0, self.battle.opponent.active.boosts[constants.DEFENSE])
+
+    def test_clears_opponents_and_botsboosts(self):
+        split_msg = ['', '-clearallboost']
+        self.battle.user.active.boosts = {
+            constants.ATTACK: 1,
+            constants.DEFENSE: 1
+        }
+        self.battle.opponent.active.boosts = {
+            constants.ATTACK: 1,
+            constants.DEFENSE: 1
+        }
+        clearallboost(self.battle, split_msg)
+        self.assertEqual(0, self.battle.user.active.boosts[constants.ATTACK])
+        self.assertEqual(0, self.battle.user.active.boosts[constants.DEFENSE])
+        self.assertEqual(0, self.battle.opponent.active.boosts[constants.ATTACK])
+        self.assertEqual(0, self.battle.opponent.active.boosts[constants.DEFENSE])
+
+
 class TestMove(unittest.TestCase):
     def setUp(self):
         self.battle = Battle(None)
@@ -623,6 +705,14 @@ class TestMove(unittest.TestCase):
         m = Move("String Shot")
 
         self.assertIn(m, self.battle.opponent.active.moves)
+
+    def test_does_not_set_move_for_magicbounch(self):
+        split_msg = ['', 'move', 'p2a: Caterpie', 'String Shot', '[from]Magic Bounce']
+
+        move(self.battle, split_msg)
+        m = Move("String Shot")
+
+        self.assertNotIn(m, self.battle.opponent.active.moves)
 
     def test_new_move_has_one_pp_less_than_max(self):
         split_msg = ['', 'move', 'p2a: Caterpie', 'String Shot']
@@ -673,6 +763,30 @@ class TestMove(unittest.TestCase):
 
         self.assertFalse(self.battle.opponent.active.can_have_choice_item)
 
+    def test_using_a_boosting_status_move_sets_can_have_choice_item_to_false(self):
+        self.battle.opponent.active.can_have_choice_item = True
+        split_msg = ['', 'move', 'p2a: Caterpie', 'Dragon Dance']
+
+        move(self.battle, split_msg)
+
+        self.assertFalse(self.battle.opponent.active.can_have_choice_item)
+
+    def test_using_a_boosting_physical_move_does_not_set_can_have_choice_item_to_false(self):
+        self.battle.opponent.active.can_have_choice_item = True
+        split_msg = ['', 'move', 'p2a: Caterpie', 'Scale Shot']
+
+        move(self.battle, split_msg)
+
+        self.assertTrue(self.battle.opponent.active.can_have_choice_item)
+
+    def test_using_a_boosting_special_move_does_not_set_can_have_choice_item_to_false(self):
+        self.battle.opponent.active.can_have_choice_item = True
+        split_msg = ['', 'move', 'p2a: Caterpie', 'Scale Shot']
+
+        move(self.battle, split_msg)
+
+        self.assertTrue(self.battle.opponent.active.can_have_choice_item)
+
     def test_sets_item_to_unknown_if_the_pokemon_has_choice_item_but_two_different_moves_are_used(self):
         self.battle.opponent.active.can_have_choice_item = True
         self.battle.opponent.active.item = 'choiceband'
@@ -695,8 +809,8 @@ class TestMove(unittest.TestCase):
 
     def test_does_not_set_can_have_choice_item_to_false_if_the_same_move_is_used_when_the_pkmn_has_an_unknown_item(self):
         self.battle.opponent.active.can_have_choice_item = True
-        split_msg = ['', 'move', 'p2a: Caterpie', 'String Shot']
-        self.battle.opponent.last_used_move = LastUsedMove('caterpie', 'stringshot', 0)
+        split_msg = ['', 'move', 'p2a: Caterpie', 'Tackle']
+        self.battle.opponent.last_used_move = LastUsedMove('caterpie', 'tackle', 0)
 
         move(self.battle, split_msg)
 
