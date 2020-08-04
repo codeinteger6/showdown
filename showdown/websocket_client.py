@@ -38,10 +38,12 @@ class PSWebsocketClient:
 
     async def receive_message(self):
         message = await self.websocket.recv()
+        logger.debug("Received message from websocket: {}".format(message))
         return message
 
     async def send_message(self, room, message_list):
         message = room + "|" + "|".join(message_list)
+        logger.debug("Sending message to websocket: {}".format(message))
         await self.websocket.send(message)
         self.last_message = message
 
@@ -79,6 +81,10 @@ class PSWebsocketClient:
         if response.status_code == 200:
             if self.password:
                 response_json = json.loads(response.text[1:])
+                if not response_json['actionsuccess']:
+                    logger.error("Login Unsuccessful")
+                    raise LoginError("Could not log-in")
+
                 assertion = response_json.get('assertion')
             else:
                 assertion = response.text
