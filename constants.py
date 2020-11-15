@@ -57,6 +57,7 @@ MUTATOR_FIELD_END = "field_end"
 MUTATOR_TOGGLE_TRICKROOM = "toggle_trickroom"
 MUTATOR_CHANGE_TYPE = "change_type"
 MUTATOR_CHANGE_ITEM = "change_item"
+MUTATOR_CHANGE_STATS = "change_stats"
 
 
 DAMAGE = 'damage'
@@ -103,6 +104,8 @@ TYPES = "types"
 TYPE = "type"
 BASE_POWER = "basePower"
 WEIGHT = "weight"
+NATURE = "nature"
+EVS = "evs"
 
 SIDE = "side"
 POKEMON = "pokemon"

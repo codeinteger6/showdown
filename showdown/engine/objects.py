@@ -183,6 +183,8 @@ class Pokemon(object):
         'special_attack',
         'special_defense',
         'speed',
+        'nature',
+        'evs',
         'attack_boost',
         'defense_boost',
         'special_attack_boost',
@@ -209,6 +211,8 @@ class Pokemon(object):
                  special_attack,
                  special_defense,
                  speed,
+                 nature="serious",
+                 evs=(85,) * 6,
                  attack_boost=0,
                  defense_boost=0,
                  special_attack_boost=0,
@@ -231,6 +235,8 @@ class Pokemon(object):
         self.special_attack = special_attack
         self.special_defense = special_defense
         self.speed = speed
+        self.nature = nature
+        self.evs = evs
         self.attack_boost = attack_boost
         self.defense_boost = defense_boost
         self.special_attack_boost = special_attack_boost
@@ -292,6 +298,8 @@ class Pokemon(object):
             d[constants.STATS][constants.SPECIAL_ATTACK],
             d[constants.STATS][constants.SPECIAL_DEFENSE],
             d[constants.STATS][constants.SPEED],
+            d[constants.NATURE],
+            d[constants.EVS],
             d[constants.BOOSTS][constants.ATTACK],
             d[constants.BOOSTS][constants.DEFENSE],
             d[constants.BOOSTS][constants.SPECIAL_ATTACK],
@@ -319,6 +327,8 @@ class Pokemon(object):
             d[constants.SPECIAL_ATTACK],
             d[constants.SPECIAL_DEFENSE],
             d[constants.SPEED],
+            d[constants.NATURE],
+            d[constants.EVS],
             d[constants.ATTACK_BOOST],
             d[constants.DEFENSE_BOOST],
             d[constants.SPECIAL_ATTACK_BOOST],
@@ -359,6 +369,8 @@ class Pokemon(object):
                 constants.SPECIAL_ATTACK: self.special_attack,
                 constants.SPECIAL_DEFENSE: self.special_defense,
                 constants.SPEED: self.speed,
+                constants.NATURE: self.nature,
+                constants.EVS: self.evs,
                 constants.ATTACK_BOOST: self.attack_boost,
                 constants.DEFENSE_BOOST: self.defense_boost,
                 constants.SPECIAL_ATTACK_BOOST: self.special_attack_boost,
@@ -426,7 +438,8 @@ class StateMutator:
             constants.MUTATOR_FIELD_END: self.end_field,
             constants.MUTATOR_TOGGLE_TRICKROOM: self.toggle_trickroom,
             constants.MUTATOR_CHANGE_TYPE: self.change_types,
-            constants.MUTATOR_CHANGE_ITEM: self.change_item
+            constants.MUTATOR_CHANGE_ITEM: self.change_item,
+            constants.MUTATOR_CHANGE_STATS: self.change_stats
         }
         self.reverse_instructions = {
             constants.MUTATOR_SWITCH: self.reverse_switch,
@@ -449,7 +462,8 @@ class StateMutator:
             constants.MUTATOR_FIELD_END: self.reverse_end_field,
             constants.MUTATOR_TOGGLE_TRICKROOM: self.toggle_trickroom,
             constants.MUTATOR_CHANGE_TYPE: self.reverse_change_types,
-            constants.MUTATOR_CHANGE_ITEM: self.reverse_change_item
+            constants.MUTATOR_CHANGE_ITEM: self.reverse_change_item,
+            constants.MUTATOR_CHANGE_STATS: self.reverse_change_stats
         }
 
     def apply_one(self, instruction):
@@ -626,3 +640,24 @@ class StateMutator:
     def reverse_change_item(self, side, _, old_item):
         side = self.get_side(side)
         side.active.item = old_item
+
+    def change_stats(self, side, new_stats, _):
+        # the third parameter is the old stats
+        # is must be here for reversing purposes
+        side = self.get_side(side)
+        side.active.maxhp = new_stats[0]
+        side.active.attack = new_stats[1]
+        side.active.defense = new_stats[2]
+        side.active.special_attack = new_stats[3]
+        side.active.special_defense = new_stats[4]
+        side.active.speed = new_stats[5]
+
+    def reverse_change_stats(self, side, _, old_stats):
+        # the second parameter are the new stats
+        side = self.get_side(side)
+        side.active.maxhp = old_stats[0]
+        side.active.attack = old_stats[1]
+        side.active.defense = old_stats[2]
+        side.active.special_attack = old_stats[3]
+        side.active.special_defense = old_stats[4]
+        side.active.speed = old_stats[5]

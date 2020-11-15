@@ -6584,7 +6584,7 @@ class TestGetStateInstructions(unittest.TestCase):
         bot_move = "earthquake"
         opponent_move = "thunderwave"
         self.state.self.active.types = ['water', 'grass']
-        self.state.self.active.ability = 'protean'
+        self.state.self.active.ability = 'libero'
         instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
         expected_instructions = [
             TransposeInstruction(
@@ -6594,6 +6594,37 @@ class TestGetStateInstructions(unittest.TestCase):
                     (constants.MUTATOR_DAMAGE, constants.OPPONENT, 94),
                 ],
                 True
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_being_flinched_does_not_result_in_type_change(self):
+        bot_move = "earthquake"
+        opponent_move = "ironhead"
+        self.state.self.active.speed = 1
+        self.state.opponent.active.speed = 2
+        self.state.self.active.types = ['water', 'grass']
+        self.state.self.active.ability = 'libero'
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                0.3,
+                [
+                    (constants.MUTATOR_DAMAGE, constants.SELF, 34),
+                    (constants.MUTATOR_APPLY_VOLATILE_STATUS, constants.SELF, constants.FLINCH),
+                    (constants.MUTATOR_REMOVE_VOLATILE_STATUS, constants.SELF, constants.FLINCH)
+                ],
+                True
+            ),
+            TransposeInstruction(
+                0.7,
+                [
+                    (constants.MUTATOR_DAMAGE, constants.SELF, 34),
+                    (constants.MUTATOR_CHANGE_TYPE, constants.SELF, ['ground'], ['water', 'grass']),
+                    (constants.MUTATOR_DAMAGE, constants.OPPONENT, 94),
+                ],
+                False
             )
         ]
 
@@ -6651,6 +6682,21 @@ class TestGetStateInstructions(unittest.TestCase):
                     (constants.MUTATOR_DAMAGE, constants.OPPONENT, 15)  # normal damage is 12
                 ],
                 False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_damp_blocks_explosion_moves(self):
+        bot_move = "splash"
+        opponent_move = "explosion"
+        self.state.self.active.ability = 'damp'
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [],  # nothing happens
+                True
             )
         ]
 
@@ -9815,6 +9861,113 @@ class TestGetStateInstructions(unittest.TestCase):
                 1,
                 [
                     (constants.MUTATOR_APPLY_STATUS, constants.SELF, constants.SLEEP)
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_aegislash_with_stancechange_has_stats_change_even_if_target_is_immune_to_move(self):
+        bot_move = "shadowball"
+        opponent_move = "splash"
+        self.state.self.active.id = 'aegislash'
+        self.state.self.active.ability = 'stancechange'
+        self.state.self.active.level = 100
+        self.state.self.active.nature = 'modest'
+        self.state.self.active.evs = (0, 0, 0, 252, 4, 252)
+        self.state.opponent.active.types = ['normal']
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+
+        # modest + max SPA aegislash blade should have its stats change into these:
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                    (
+                        constants.MUTATOR_CHANGE_STATS,
+                        constants.SELF,
+                        (
+                            self.state.self.active.maxhp,
+                            287,
+                            136,
+                            416,
+                            137,
+                            self.state.self.active.speed,
+                        ),
+                        (
+                            self.state.self.active.maxhp,
+                            self.state.self.active.attack,
+                            self.state.self.active.defense,
+                            self.state.self.active.special_attack,
+                            self.state.self.active.special_defense,
+                            self.state.self.active.speed,
+                        ),
+                    )
+                ],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_aegislash_stats_do_not_change_when_using_non_damaging_move(self):
+        bot_move = "toxic"
+        opponent_move = "splash"
+        self.state.self.active.id = 'aegislash'
+        self.state.self.active.ability = 'stancechange'
+        self.state.self.active.level = 100
+        self.state.self.active.nature = 'modest'
+        self.state.self.active.evs = (0, 0, 0, 252, 4, 252)
+        self.state.opponent.active.types = ['poison']
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [],
+                False
+            )
+        ]
+
+        self.assertEqual(expected_instructions, instructions)
+
+    def test_aegislash_stats_change_when_using_kingsshield(self):
+        bot_move = "kingsshield"
+        opponent_move = "splash"
+        self.state.self.active.id = 'aegislash'
+        self.state.self.active.ability = 'stancechange'
+        self.state.self.active.level = 100
+        self.state.self.active.nature = 'modest'
+        self.state.self.active.evs = (0, 0, 0, 252, 4, 252)
+        instructions = get_all_state_instructions(self.mutator, bot_move, opponent_move)
+
+        # modest + max SPA aegislash shield should have its stats change into these:
+        expected_instructions = [
+            TransposeInstruction(
+                1,
+                [
+                    (
+                        constants.MUTATOR_CHANGE_STATS,
+                        constants.SELF,
+                        (
+                            self.state.self.active.maxhp,
+                            123,
+                            316,
+                            218,
+                            317,
+                            self.state.self.active.speed,
+                        ),
+                        (
+                            self.state.self.active.maxhp,
+                            self.state.self.active.attack,
+                            self.state.self.active.defense,
+                            self.state.self.active.special_attack,
+                            self.state.self.active.special_defense,
+                            self.state.self.active.speed,
+                        ),
+                    ),
+                    (constants.MUTATOR_APPLY_VOLATILE_STATUS, constants.SELF, 'kingsshield')
                 ],
                 False
             )
