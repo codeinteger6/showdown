@@ -1,23 +1,17 @@
 import ntpath
-import re
 from datetime import datetime
 from dateutil import relativedelta
 
 import requests
 
-import constants
+from showdown.engine.helpers import spreads_are_alike
 from showdown.engine.helpers import normalize_name
 
-NEW_PKMN_INDICATOR = """ +----------------------------------------+ \\n +----------------------------------------+"""
-
-SECTION_END_STRING = "----------"
 OTHER_STRING = "other"
 MOVES_STRING = "moves"
 ITEM_STRING = "items"
 SPREADS_STRING = "spreads"
 ABILITY_STRING = "abilities"
-
-PERCENTAGES_REGEX = '(\d+\.\d+%)'
 
 
 def get_smogon_stats_file_name(game_mode, month_delta=1):
@@ -31,7 +25,7 @@ def get_smogon_stats_file_name(game_mode, month_delta=1):
         game_mode = game_mode[:-5]
 
     # always use the `-0` file - the higher ladder is for noobs
-    smogon_url = "https://www.smogon.com/stats/{}-{}/moveset/{}-0.txt"
+    smogon_url = "https://www.smogon.com/stats/{}-{}/chaos/{}-0.json"
 
     previous_month = datetime.now() - relativedelta.relativedelta(months=month_delta)
     year = previous_month.year
@@ -40,65 +34,56 @@ def get_smogon_stats_file_name(game_mode, month_delta=1):
     return smogon_url.format(year, month, game_mode)
 
 
-def get_pokemon_information(smogon_stats_url):
-    """Parses a Smogon stats document, such as: 'https://www.smogon.com/stats/2019-02/moveset/gen7ou-1825.txt'
-       Returns a dictionary containing the most likely spreads, items, and moves for each pokemon in order of likelihood
-    """
+def get_pokemon_information(smogon_stats_url, pkmn_names=None):
     r = requests.get(smogon_stats_url)
     if r.status_code == 404:
         r = requests.get(get_smogon_stats_file_name(ntpath.basename(smogon_stats_url.replace('-0.txt', '')), month_delta=2))
 
-    split_string = str(r.content).split(NEW_PKMN_INDICATOR)
+    infos = r.json()['data']
+    final_infos = {}
+    for pkmn_name, pkmn_information in infos.items():
+        normalized_name = normalize_name(pkmn_name)
 
-    pokemon_information = dict()
-    for pokemon_data in split_string:
-        segments = pokemon_data.split('|')
-        it = iter(segments)
-        pokemon_name = normalize_name(segments[1])
-        pokemon_information[pokemon_name] = dict()
-        pokemon_information[pokemon_name][SPREADS_STRING] = list()
-        pokemon_information[pokemon_name][ITEM_STRING] = list()
-        pokemon_information[pokemon_name][MOVES_STRING] = list()
-        pokemon_information[pokemon_name][ABILITY_STRING] = list()
-        for segment in it:
-            if normalize_name(segment) == SPREADS_STRING:
-                while SECTION_END_STRING not in segment:
-                    segment = next(it)
-                    if ':' in segment:
-                        split_segment = segment.split()
-                        spread = split_segment[0]
-                        nature = normalize_name(spread.split(':')[0])
-                        evs = spread.split(':')[1].replace('/', ',')
-                        percentage = float(re.search(PERCENTAGES_REGEX, segment).group()[:-1])
-                        pokemon_information[pokemon_name][SPREADS_STRING].append((nature, evs, percentage))
+        # if `pkmn_names` is provided, only find data on pkmn in that list
+        if pkmn_names and normalized_name not in pkmn_names:
+            continue
 
-            elif normalize_name(segment) == ITEM_STRING:
-                while SECTION_END_STRING not in segment:
-                    segment = next(it)
-                    if '%' in segment:
-                        item = normalize_name(re.sub(PERCENTAGES_REGEX, '', segment).strip())
-                        percentage = float(re.search(PERCENTAGES_REGEX, segment).group()[:-1])
-                        if item != OTHER_STRING:
-                            pokemon_information[pokemon_name][ITEM_STRING].append((item, percentage))
+        spreads = []
+        items = []
+        moves = []
+        abilities = []
+        total_count = pkmn_information['Raw count']
+        final_infos[normalized_name] = {}
 
-            elif normalize_name(segment) == MOVES_STRING:
-                while SECTION_END_STRING not in segment:
-                    segment = next(it)
-                    if '%' in segment:
-                        move = normalize_name(re.sub(PERCENTAGES_REGEX, '', segment).strip())
-                        percentage = float(re.search(PERCENTAGES_REGEX, segment).group()[:-1])
-                        if move != OTHER_STRING:
-                            if constants.HIDDEN_POWER in move:
-                                move = "{}{}".format(move, constants.HIDDEN_POWER_ACTIVE_MOVE_BASE_DAMAGE_STRING)
-                            pokemon_information[pokemon_name][MOVES_STRING].append((move, percentage))
+        for spread, count in sorted(pkmn_information['Spreads'].items(), key=lambda x: x[1], reverse=True):
+            percentage = round(100 * count / total_count, 2)
+            if percentage > 0:
+                nature, evs = [normalize_name(i) for i in spread.split(":")]
+                evs = evs.replace("/", ",")
+                for sp in spreads:
+                    if spreads_are_alike(sp, (nature, evs)):
+                        sp[2] += percentage
+                        break
+                else:
+                    spreads.append([nature, evs, percentage])
 
-            elif normalize_name(segment) == ABILITY_STRING:
-                while SECTION_END_STRING not in segment:
-                    segment = next(it)
-                    if '%' in segment:
-                        ability = normalize_name(re.sub(PERCENTAGES_REGEX, '', segment).strip())
-                        percentage = float(re.search(PERCENTAGES_REGEX, segment).group()[:-1])
-                        if ability != OTHER_STRING:
-                            pokemon_information[pokemon_name][ABILITY_STRING].append((ability, percentage))
+        for item, count in pkmn_information['Items'].items():
+            if count > 0:
+                items.append((item, round(100*count / total_count, 2)))
 
-    return pokemon_information
+        for move, count in pkmn_information['Moves'].items():
+            if count > 0:
+                moves.append((move, round(100*count / total_count, 2)))
+
+        for ability, count in pkmn_information['Abilities'].items():
+            if count > 0:
+                abilities.append(
+                    (ability, round(100 * count / total_count, 2))
+                )
+
+        final_infos[normalized_name][SPREADS_STRING] = sorted(spreads, key=lambda x: x[2], reverse=True)
+        final_infos[normalized_name][ITEM_STRING] = sorted(items, key=lambda x: x[1], reverse=True)
+        final_infos[normalized_name][MOVES_STRING] = sorted(moves, key=lambda x: x[1], reverse=True)
+        final_infos[normalized_name][ABILITY_STRING] = sorted(abilities, key=lambda x: x[1], reverse=True)
+
+    return final_infos
