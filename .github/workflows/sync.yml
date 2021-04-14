@@ -9,8 +9,3 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: TG908/fork-sync@v1.3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        owner: pmariglia
-        base: master
-        head: master
